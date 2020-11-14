@@ -2,7 +2,8 @@
 #### Dataset: WESAD: Wearables and Stress Activity Detection
 #### Original Raw Dataset Link: https://uni-siegen.sciebo.de/s/pYjSgfOVs6Ntahr
 #### Processed Version: Uploaded in the repository.
-#### Course: BME-590 R for Datascience  
+#### Course: BME-590 R for Data-Science, Fall 2020
+#### Course Instructor: Prof. Jessilyn Dunn, Will Wang(TA)
 #### Brief Description: This repository the for final project for Group 7 of the course R for Data Science -Fall 2020
 #### Authors: Jingjing Shi, Jack Li and Vinayak Pathak(Group 7)
 ## Project Description:
