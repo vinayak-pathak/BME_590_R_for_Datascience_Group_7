@@ -10,14 +10,14 @@ Detection  and  classification of workplace stress, finds relevance in increasin
 
 ## Dataset Description:
  *Conditions for Participants Labels*
--- 0 = Rest
--- 1 = Baseline
--- 2 = TSST/Stress
--- 3 = Amusement
--- 4 = Meditation
--- 5  = base Read
--- 6  = Slow Read
--- 7  = fast Read
+- 0 = Rest
+- 1 = Baseline
+- 2 = TSST/Stress
+- 3 = Amusement
+- 4 = Meditation
+- 5  = base Read
+- 6  = Slow Read
+- 7  = fast Read
 
 *For each patient we extracted rolling average at a resolution of 1 second. For the chest worn dataset.(Respbian)*
 - Total data points = 44953
