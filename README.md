@@ -9,19 +9,19 @@
 Detection  and  classification of workplace stress, finds relevance in increasing the overall organizational output and designing stress intervention strategies for enhancing the employee performance. In this paper, several models were applied to classify multiple and binary stress levels, and 99.5% accuracy was achieved by random forest in binary classification. These modelling approaches can then be extended to a more comprehensive setting, that involves a diverse group of working individuals under different workplace conditions.
 
 ## Dataset Description:
-Conditions for Participants Labels.
-0 = Rest
-1 = Baseline
-2 = TSST/Stress
-3 = Amusement
-4 = Meditation
-5  = base Read
-6  = Slow Read
-7  = fast Read
+- Conditions for Participants Labels.
+-- 0 = Rest
+-- 1 = Baseline
+-- 2 = TSST/Stress
+-- 3 = Amusement
+-- 4 = Meditation
+-- 5  = base Read
+-- 6  = Slow Read
+-- 7  = fast Read
 
-For each patient we extracted rolling average at a resolution of 1 second. For the chest worn dataset.(Respbian)
-Total data points = 44953
-Number of patients =15
-PIDs = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 17)
+- For each patient we extracted rolling average at a resolution of 1 second. For the chest worn dataset.(Respbian)
+- Total data points = 44953
+- Number of patients =15
+- PIDs = (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 17)
 
 
