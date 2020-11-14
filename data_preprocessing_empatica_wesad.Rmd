@@ -1,0 +1,176 @@
+---
+title: "data_preprocessing_empatica_wesad.Rmd"
+author: "Jingjing Shi, Jack Li, Vinayak Pathak"
+date: "11/13/2020"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Loading the appropriate libraries for the project
+```{r}
+library(psych)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(pracma)
+library(SynchWave)
+library(corrplot)
+library(rmatio)
+library(reticulate)
+library(matlab)
+library(lubridate)
+library("gtools")
+library(zoo)
+```
+
+```{r}
+plist<-as.integer(c(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17))
+```
+
+```{r}
+file_main="C:\\Users\\COLDD03\\Desktop\\Project_Dataset\\WESAD\\S2\\S2_E4_Data\\"
+```
+
+```{r}
+ACC<-read.csv2(paste0(file_main, "ACC.csv"),sep=",", header=FALSE)
+lenacc<-nrow(ACC)
+ACC<-ACC[3:lenacc,]
+facc = 32
+names(ACC)<-c("x", "y", "z")
+l<-unlist(seq(1, lenacc-2))
+ACC[["sno"]]<-l
+```
+```{r}
+ACC<-ACC%>%
+  mutate(time = (sno/(60*facc)))#Time in Seconds
+```
+```{r}
+S2_quest<-read.csv2(file = "C:\\Users\\COLDD03\\Desktop\\Project_Dataset\\WESAD\\S2\\S2_quest.csv")
+```
+Conditions for Participants
+1 = Baseline
+2 = TSST/Stress
+3 = Amusement
+4 = Meditation
+5  = b Read
+6  = Slow Read
+7  = fast Read
+
+We will first create an interface for reading in the pickle data
+```{r}
+require("reticulate")
+source_python("pickle_reader.py")
+```
+Now creating a list of filenames in the variable filen
+```{r}
+plist<-as.integer(c(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17))
+```
+
+```{r}
+root_fold=c("C:\\Users\\COLDD03\\Desktop\\Project_Dataset\\WESAD")
+filen=list()
+a=1
+for (i in plist)
+  {
+  base = paste("S",i, sep="")
+  file = paste("S",i,".pkl",sep="")
+  file_name<-paste(root_fold, base, file, sep="\\")
+  filen<-append(filen[!is.na(filen)], file_name)
+  a=a+1
+}
+```
+All the file-names to be read are stored in the 'filen' variable, now we will sequentially read the corresponding pickle files..And store them in a prescribed format, After that we will apply time windowing and extract the features.
+```{r}
+filen[[1]]
+```
+Creating a new dataframe called data.raw WESAD
+```{r}
+facc = 32
+fbvp = 64
+feda = 4
+ftemp  = 4
+```
+```{r}
+data.raw.wesad=list()
+for(i in c(1:1))#length(filen) replace the end 1 with length(filen)
+{ pickle_data <- read_pickle_file(filen[[i]])
+}
+
+```
+
+```{r}
+x<-pickle_data$label
+label_mean<-as.data.frame(rollapply(x, width = 700, FUN = min, by =700))
+```
+```{r}
+unique(label_mean)
+```
+```{r}
+count()
+```
+```{r}
+x<-data.frame(x)
+
+```
+Following code stores the time series data of individual variables in form of list
+```{r}
+data.raw.wesad = list()
+```
+
+```{r}
+for(i in c(1:length(filen)))
+{ 
+  pickle_data <- read_pickle_file(filen[[i]])
+  len_data<-nrow(pickle_data$signal$wrist$TEMP)/4
+  timesec =c(1:len_data)
+  timemin = timesec/60.0
+  Pat_ID  = plist[i]*(ones(nrow(len_data), 1))
+  Index = c(1:len_data)
+  acc_mean<-rollapply(pickle_data$signal$wrist$ACC, width = facc, FUN = mean, by =facc)
+  eda_mean<-rollapply(pickle_data$signal$wrist$EDA, width = feda, FUN = mean, by =feda)
+  bvp_mean<-rollapply(pickle_data$signal$wrist$BVP, width = fbvp, FUN = mean, by =fbvp)
+  temp_mean<-rollapply(pickle_data$signal$wrist$TEMP, width = ftemp, FUN = mean, by =ftemp)
+  #label<--rollapply(pickle_data$label, width = 700, FUN = max, by =700)
+  data.raw.wesad[[i]]<-data.frame(Index = Index, EDA = eda_mean, ACC = acc_mean, BVP = bvp_mean, TEMP = temp_mean, lab = label, Pat_ID = Pat_ID, timesec = timesec, timemin = timemin)
+}
+
+```
+```{r}
+timeshifts = c(118.2514285714,33.81143,45.9057,42.8271,27.5029,27.7671,55.0671, 13.55286, 57.14143, 48.17429, 48.89286, 93.60286, 144.7686, 81.62857, 88.96429)
+```
+```{r}
+for(i in c(1:length(filen)))
+{
+  data.raw.wesad[[i]]$timesec<-data.raw.wesad[[i]]$timesec+timeshifts[i]
+  data.raw.wesad[[i]]$timemin<-(data.raw.wesad[[i]]$timesec)/(60.0)
+}
+```
+
+
+
+```{r}
+
+Sname<-list()
+
+```
+```{r}
+for(i in c(1:length(plist)))
+{
+Sname<-append(Sname, paste0("S", plist[i], "_E4_final"))
+}
+```
+```{r}
+for(i in c(1:15))
+{
+   write_delim(data.raw.wesad[[i]], paste("C:\\Users\\COLDD03\\Desktop\\Project_Dataset\\WESAD\\wesad_e4_process\\WESAD_E4_Patient_data\\", Sname[[i]], ".csv", sep=""), delim = ",")
+}
+
+```
+```{r}
+Spat_combined<-do.call(rbind, data.raw.wesad)
+```
+```{r}
+   write_delim(Spat_combined, paste("C:\\Users\\COLDD03\\Desktop\\Project_Dataset\\WESAD\\wesad_e4_process\\WESAD_E4_Patient_data\\", "Spat_combined", ".csv", sep=""), delim = ",")
+
+```

@@ -1,0 +1,465 @@
+---
+title: "models_final.Rmd"
+author: "Jingjing Shi, Jack Li, Vinayak Pathak"
+date: "11/13/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+```{r setup, include=FALSE,warning=FALSE,message = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load library, message=FALSE}
+library(plyr)
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+library(patchwork)
+library(gridExtra)
+library(psych)
+library(corrplot)
+library(ggfortify)
+library(cluster)
+library(factoextra)
+library(VIM)
+library(robustHD)
+library(car)
+library(e1071)
+```
+
+```{r load library, message=FALSE}
+library(plyr)
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+library(patchwork)
+library(gridExtra)
+library(psych)
+library(corrplot)
+library(ggfortify)
+library(cluster)
+library(factoextra)
+library(VIM)
+library(robustHD)
+```
+
+## First we did EDA on our processed data
+```{r}
+data <- read.csv('WESAD_combined_dataset.csv')
+```
+
+#### The dataset has 44953 observations from 15 patients, and no missing values
+```{r summary of data}
+# get summary of the data
+str(data)
+summary(data)
+# change ID to factor
+data$ID <- as.factor(data$ID)
+# choose only the predictors
+data_predictor <- data %>% select(EDA,ACC.1,ACC.2,ACC.3,ECG,EMG,Temp,Resp)
+```
+```{r}
+# apply winsorization on predictors to remove outliers
+data_processed <- as.data.frame(winsorize(data_predictor))
+data_processed
+summary(data_processed)
+```
+
+#### ACC1 and temp is left skewed, EMG is strange (may require transformation), EDA is right skewed
+```{r check distribution of each variable}
+n <- nrow(data_processed)
+jpeg('rplot.jpg')
+data_processed %>%
+  keep(is.numeric) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+    facet_wrap(~ key, scales = "free",ncol = 4) +
+    geom_histogram(bins=sqrt(n))
+dev.off()
+```
+
+
+#### We can take ECG and EDA for example, to show that ECG doesn't show differences in different groups, while EDA observations are very different in different label groups
+```{r box plot}
+data_for_plot <- cbind(data$ID,data$lab,data$timesec,data_processed)
+colnames(data_for_plot) <- c('ID','lab','timesec','EDA','ACC.1','ACC.2','ACC.3','ECG','EMG','Temp','Resp')
+data_for_plot
+boxplot(ACC.1~lab,data=data_for_plot,ylab="Label",horizontal=TRUE,
+        xlab="ACC.1")
+boxplot(ACC.2~lab,data=data_for_plot,ylab="Label",horizontal=TRUE,
+        xlab="ACC.2")
+boxplot(ACC.3~lab,data=data_for_plot,ylab="Label",horizontal=TRUE,
+        xlab="ACC.3")
+boxplot(ECG~lab,data=data_for_plot,ylab="Label",horizontal=TRUE,
+        xlab="ECG")
+boxplot(EDA~lab,data=data_for_plot,ylab="Label",horizontal=TRUE,
+        xlab="EDA")
+boxplot(EMG~lab,data=data_for_plot,ylab="Label",horizontal=TRUE,
+        xlab="EMG")
+boxplot(Resp~lab,data=data_for_plot,ylab="Label",horizontal=TRUE,
+        xlab="Temp")
+boxplot(Resp~lab,data=data_for_plot,ylab="Label",horizontal=TRUE,
+        xlab="Resp")
+```
+
+```{r}
+jpeg('eda_boxplot.jpg')
+boxplot(EDA~lab,data=data_for_plot,ylab="Label",horizontal=TRUE,
+        xlab="Electrodermal Activity/µS",main = 'Distribution of EMG in' )
+dev.off()
+jpeg('emg_boxplot.jpg')
+boxplot(EMG~lab,data=data_for_plot,ylab="Label",horizontal=TRUE,
+        xlab="Electromyogram/µV")
+dev.off()
+```
+```{r}
+jpeg('boxplot.jpg')
+par(mfrow=c(1,2))
+boxplot(EDA~lab,data=data_for_plot,ylab="Electrodermal Activity/µS",pch=25,xaxt='n',
+        xlab="Stress Level Label",col=c("red3","yellow3",'purple','blue'),cex = 0.85,main ="EDA in Different Task")
+axis(1,at=c(1,2,3,4),labels=c("1","2","3","4"))
+boxplot(EMG~lab,data=data_for_plot,ylab="Electromyogram/µV",pch=25,xaxt='n',
+        xlab="Stress Level Label",col=c("red3","yellow3",'purple','blue'),cex = 0.85,main ="EMG in Different Task")
+axis(1,at=c(1,2,3,4),labels=c("1","2","3","4"))
+dev.off()
+```
+
+
+#### Now check the distribution of labels, each patient has about the same time in each stress level, but stress level 1 has more data than other levels, we may need to deal with imbalanced class
+```{r stress level}
+table(data_for_plot$lab,data_for_plot$ID)
+```
+
+#### Then check correlations of predictors, Only ACC.1 and ACC.3 are strongly correlated, so collineary will not be a huge issue in our futher modeling
+```{r correlation matrix}
+cor(data_processed)
+jpeg('correlation.jpg')
+corrplot.mixed(cor(data_processed),lower.col='black',tl.cex = 0.7,title = 'Corrlations of Variables',mar=c(0,0,1,0))
+dev.off()
+```
+
+#### Plot time series data for different patients, this could be further break down into two test groups, EDA variable would be a good example. Also Temp may have some outliers and requires further investigation into it.
+
+
+```{r spagetti plots}
+ggplot(data = data_for_plot, aes(x=timesec,y=ACC.1,group= ID,color=ID))+
+  geom_line()
+ggplot(data = data_for_plot, aes(x=timesec,y=ACC.2,group= ID,color=ID))+
+  geom_line()
+ggplot(data = data_for_plot, aes(x=timesec,y=ACC.3,group= ID,color=ID))+
+  geom_line()
+ggplot(data = data_for_plot, aes(x=timesec,y=ECG,group= ID,color=ID))+
+  geom_line()
+ggplot(data = data_for_plot, aes(x=timesec,y=EDA,group= ID,color=ID))+
+  geom_line()
+ggplot(data = data_for_plot, aes(x=timesec,y=EMG,group= ID,color=ID))+
+  geom_line()
+ggplot(data = data_for_plot, aes(x=timesec,y=Temp,group= ID,color=ID))+
+  geom_line()
+ggplot(data = data_for_plot, aes(x=timesec,y=Resp,group= ID,color=ID))+
+  geom_line()
+```
+
+```{r}
+jpeg('time_series.jpg')
+ggplot(data = data_for_plot, aes(x=timesec,y=Temp,group= ID,color=ID))+
+  geom_line()+
+  ggtitle('Spagetti Plot of Skin Temperature')+
+  xlab('Time/Second')+
+  ylab('Skin Temperature /Degree Celcius')
+dev.off()
+```
+
+## Data Preprocess before modeling
+
+
+```{r models}
+library(arm)
+library(pROC)
+library(e1071)
+library(caret)
+## use the winsorized data to do models
+data_model <-cbind(data$lab,data_processed)
+colnames(data_model) <- c('lab','EDA','ACC.2','ACC.3','ECG','EMG','Temp','Resp')
+summary(data_model)
+```
+
+```{r get traindata and test data}
+library(class)
+library(caTools)
+library(gmodels)
+# random split dataset to get 80% training and 20% test
+set.seed(123)
+sample <- sample.split(data_model$lab,SplitRatio = 0.8)
+train_df <- subset(data_model,sample ==TRUE)
+test_df <- subset(data_model, sample==FALSE)
+X_train <- train_df[,2:8]
+y_train <- train_df[,1]
+X_test <- test_df[,2:8]
+y_test <- test_df[,1]
+```
+
+
+## Multilevel Classification
+```{r decision tree,fig.width=12, fig.height=9}
+###### CART
+library(tree)
+## Decision train
+ars_cart <- tree(as.factor(lab) ~ ., data = train_df)
+summary(ars_cart)
+# get tree structure
+plot(ars_cart)
+text(ars_cart)
+# evaluate decision tree performance on test data
+table(predict(ars_cart,test_df,type="class"),test_df$lab)
+```
+
+```{r random forest}
+###### random forest
+library(randomForest)
+ars_bagg <- randomForest(as.factor(lab) ~ ., data = train_df,importance= TRUE)
+ars_bagg
+# get variance importance for random forest
+varImpPlot(ars_bagg)
+```
+
+
+```{r}
+# evalute random forest performance on test set
+table(predict(ars_bagg,test_df,type="class"),test_df$lab)
+```
+
+
+```{r boost}
+###### Boosting
+library(gbm)
+## apply gradient boosting model o
+ars_boost <-  gbm(lab ~ .,data=train_df,
+               distribution="multinomial",n.trees=5000, interaction.depth=2)
+summary(ars_boost)
+```
+```{r}
+## to visualize  the effects of predictors
+Effects <- tibble::as_tibble(gbm::summary.gbm(ars_boost, 
+                                         plotit = FALSE))
+Effects%>% 
+  # arrange descending to get the top influencers
+  dplyr::arrange(desc(rel.inf)) %>%
+  # plot these data using columns
+  ggplot(aes(x = forcats::fct_reorder(.f = var, 
+                                      .x = rel.inf), 
+             y = rel.inf, 
+             fill = rel.inf)) +
+  geom_col() +
+  # flip
+  coord_flip() +
+  # format
+  theme(axis.title = element_text()) + 
+  xlab('Features') +
+  ylab('Relative Influence') +
+  ggtitle("Relative Influence Rankings")
+```
+
+```{r}
+# evaluate the gradient boosting performance on test set
+pred <- predict(ars_boost,test_df,type='response',n.trees = 5000)
+labels = colnames(pred)[apply(pred, 1, which.max)]
+```
+
+
+```{r}
+# create confusion matrix for boosting model test result
+table(labels,test_df$lab)
+```
+
+
+```{r KNN}
+## apply knn, k value is the square root of training set
+knn_model <- knn(X_train,X_test,cl = y_train,k = sqrt(nrow(X_train)))
+# get confusion matrix for knn model test result
+CrossTable(y_test,knn_model,prop.chisq = FALSE)
+```
+
+```{r LDA}
+library(MASS)
+library(ROCR)
+# install.packages('mda')
+# apply multilevel linear discriminative analysis
+library(mda)
+mda_model <- mda(lab~.,train_df)
+# evaluate mda result on test dataset
+mda_predict<-predict(mda_model,test_df)
+mda_predict
+lda_model <-lda(lab~.,train_df)
+lda_predict<-predict(lda_model,test_df)$class
+#view(lda_predict)
+CrossTable(y_test,mda_predict,prop.chisq = FALSE)
+```
+
+```{r}
+## calculate error rate for each class for MDA
+1-861/1993
+1-97/1115
+1-1254/2360
+```
+
+```{r svm}
+## attempt svm model on training set, but not very successful, hard to converge
+svm_model <- svm(lab~.,train_df,kernel = 'radial', cost=10,gamma=1)
+summary(svm_model)
+plot(svm_model,train_df)
+svm_predict<-predict(svm_model,test_df)
+```
+
+
+## Binary Classification
+
+Only use Stress (lab=2) and Amusement(lab=3) as outcome levels
+```{r subset of data}
+# stress as 1, and amusement as 0
+data_binary<-data_model %>% filter(lab ==2 | lab ==3)
+data_binary <-data_binary%>% mutate (lab = case_when(lab==2~1,
+                                       lab==3~0))%>%mutate(lab =as.factor(lab))
+summary(data_binary)
+set.seed(123)
+## create 80% training data and 20% test data for the subset also
+sample <- sample.split(data_binary$lab,SplitRatio = 0.8)
+train_df <- subset(data_binary,sample ==TRUE)
+test_df <- subset(data_binary, sample==FALSE)
+X_train <- train_df[,2:8]
+y_train <- train_df[,1]
+X_test <- test_df[,2:8]
+y_test <- test_df[,1]
+```
+```{r logistic}
+## apply logistic regression first
+log_reg <- glm(lab~.,data =train_df,family=binomial(link='logit'))
+## test vif of predictors
+vif(log_reg)
+## evalute results on test set
+pred_log <- ifelse(predict(log_reg,test_df)>-0.5,"1","0")
+## Confusion matrix
+Conf_mat <- confusionMatrix(as.factor(pred_log),
+                            as.factor(test_df$lab),positive = "1")
+Conf_mat$table
+Conf_mat$overall["Accuracy"]
+Conf_mat$byClass[c("Sensitivity","Specificity")] #True positive rate and True negative rate
+## ROC curve
+roc(test_df$lab,predict(log_reg,test_df),plot=T,print.thres="best",legacy.axes=T,print.auc =F,col="red3")
+```
+
+```{r decision tree binary}
+###### CART
+ars_cart <- tree(as.factor(lab) ~ ., data = train_df)
+summary(ars_cart)
+plot(ars_cart)
+text(ars_cart)
+ars_cart
+head(predict(ars_cart,test_df,type="class"))
+## Confusion matrix
+Conf_mat_cart <- confusionMatrix(as.factor(predict(ars_cart,test_df,type='class')),
+                            as.factor(test_df$lab),positive = "1")
+Conf_mat_cart$table
+Conf_mat_cart$overall["Accuracy"]
+Conf_mat_cart$byClass[c("Sensitivity","Specificity")] #True positive rate and True negative rate
+## ROC curve
+roc(test_df$lab,predict(ars_cart,test_df,type='vector')[,2],plot=T,print.thres="best",legacy.axes=T,print.auc =F,col="red3")
+```
+
+```{r random forest binary}
+###### random forest
+ars_bagg <- randomForest(as.factor(lab) ~ ., data = train_df,importance=TRUE)
+ars_bagg
+## Confusion matrix
+Conf_mat_bagg <- confusionMatrix(predict(ars_bagg,test_df,type="response"),
+                                 as.factor(test_df$lab),positive = "1")
+Conf_mat_bagg$table #compare to Conf_mat$table
+Conf_mat_bagg$overall["Accuracy"]
+Conf_mat_bagg$byClass[c("Sensitivity","Specificity")]
+## ROC curve
+roc(test_df$lab,predict(ars_bagg,test_df,type="prob")[,2],plot=T,print.thres="best",legacy.axes=T,print.auc =F,col="red3")
+```
+```{r boost binary}
+###### Boosting
+ars_boost <-  gbm(lab ~ .,data=train_df,distribution="multinomial",n.trees=5000, interaction.depth=2)
+summary(ars_boost)
+pred_boost<- predict(ars_boost,test_df,type='response',n.trees = 5000)
+labels = colnames(pred_boost)[apply(pred_boost, 1, which.max)]
+table(labels,test_df$lab)
+roc(test_df$lab,pred_boost[,1],plot=T,print.thres="best",legacy.axes=T,print.auc =T,col="red3")
+```
+
+```{r KNN binary}
+## knn model
+knn_model <- knn(X_train,X_test,cl = y_train,k = sqrt(nrow(X_train)))
+CrossTable(y_test,knn_model,prop.chisq = FALSE)
+```
+
+```{r LDA binary}
+# lda model
+lda_model <-lda(lab~.,train_df)
+lda_predict<-predict(lda_model,test_df)$class
+CrossTable(y_test,lda_predict,prop.chisq = FALSE)
+```
+```{r compute error rate}
+## compute error rate for lada
+(84+38+176)/(84+38+176+3224)
+(289+51+341)/(289+51+341+1312)
+(386+150+273)/(386+150+273+306)
+(425+418+101)/(425+418+101+1416)
+             
+```
+
+```{r time series}
+rm(list = ls())
+library(tseries)
+library(forecast)
+library(ggplot2)
+## use patinet 8 as example
+data <- read.csv('S8_final.csv')
+## use EDA and ECG, create time series object
+jpeg('timeseries.jpg')
+par(mfrow=c(2,1))
+EDA <- ts(data$EDA)
+ts.plot(EDA,col='red3')
+ECG <- ts(data$ECG)
+ts.plot(ECG,col='blue4')
+dev.off()
+## look at autocorrelations
+jpeg('autocorrelation_eda.jpg')
+par(mfrow=c(2,1))
+acf(EDA)
+pacf(EDA)
+dev.off()
+jpeg('autocorrelation_ecg.jpg')
+par(mfrow=c(2,1))
+acf(ECG)
+pacf(ECG)
+dev.off()
+#Tests for stationarity
+adf_test_EDA <- adf.test(EDA,alternative = 'stationary')
+print(adf_test_EDA)
+#note that the alternative hypothesis here is "stationary"
+#so that low p-values support stationarity
+#looks like the series is not stationary
+adf_test_ECG<- adf.test(ECG,alternative = 'stationary')
+print(adf_test_ECG)
+#by the way, KPSS stands for Kwiatkowski-Philips-Schmidt-Shin
+#here, the null hypothesis is actually "stationary"
+#so that high p-values support stationarity
+#again, looks like the series is not stationary
+kpss_test_EDA <- kpss.test(EDA)
+print(kpss_test_EDA)
+kpss_test_ECG <- kpss.test(ECG)
+print(kpss_test_ECG)
+auto.arima(ECG)
+Model1 <- arima(ECG, order = c(3,0,4))
+Model1
+jpeg('forecast.jpg')
+futurVal <- forecast(Model1,h=10, level=c(99.5))
+autoplot(futurVal)
+dev.off()
+```

@@ -1,0 +1,525 @@
+---
+title: "data_preprocessing_chest_wesad.Rmd"
+author: "Jingjing Shi, Jack Li, Vinayak Pathak"
+date: "11/13/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+Loading the appropriate libraries for the project
+```{r}
+library(psych)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(pracma)
+library(SynchWave)
+library(corrplot)
+library(rmatio)
+library(reticulate)
+library(matlab)
+library(lubridate)
+library("gtools")
+```
+
+We will first create an interface for reading in the pickle data
+```{r}
+require("reticulate")
+source_python("pickle_reader.py")
+```
+Now creating a list of filenames in the variable filen
+```{r}
+plist<-as.integer(c(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17))
+```
+```{r}
+plist[1]
+
+```
+
+##Reading the file names
+```{r}
+root_fold=c("C:\\Users\\COLDD03\\Desktop\\Project_Dataset\\WESAD")
+filen=NA
+a=1
+for (i in plist)
+  {
+  base = paste("S",i, sep="")
+  file = paste("S",i,".pkl",sep="")
+  file_name<-paste(root_fold, base, file, sep="\\")
+  filen<-append(filen[!is.na(filen)], file_name)
+  a=a+1
+}
+```
+All the file-names to be read are stored in the file, now we will sequentially read the corresponding pickle files..And store them in a prescribed format, After that we will apply time windowing and extract the features.
+```{r}
+fs = 700# 700 Hz
+ts = 1/fs#Sampling timeline
+data.raw=list()
+```
+```{r}
+for(i in c(1:length(filen)))#length(filen) replace the end 1 with length(filen)
+ { pickle_data <- read_pickle_file(filen[i])
+  timesec =c(1:nrow(pickle_data["signal"]$signal$chest$EDA))/fs
+  timemin = timesec/60.0
+ 
+  data.raw[[i]]<-data.frame(Index =c(1:nrow(pickle_data["signal"]$signal$chest$EDA)),
+                            Pat_ID  = plist[i]*(ones(nrow(pickle_data["signal"]$signal$chest$EDA), 1)), EDA=pickle_data["signal"]$signal$chest$EDA, ACC=pickle_data["signal"]$signal$chest$ACC,ECG=pickle_data["signal"]$signal$chest$ECG, EMG=pickle_data["signal"]$signal$chest$EMG,Temp=pickle_data["signal"]$signal$chest$Temp,
+                            Resp=pickle_data["signal"]$signal$chest$Resp, 
+                            lab=pickle_data["label"]$label, timesec = timesec, timemin = timemin)}
+```
+Adding the time vector
+For each data frame add the uncorrected time vector.
+```{r}
+length(filen)
+```
+```{r}
+
+```
+```{r}
+for(i in c(1:length(filen)))
+{data.raw[[i]]%>%
+    mutate(timesec = Index/700)
+}
+
+```
+Extracting the Respiban signal from the data.frame
+
+```{r}
+#assign(paste("data.raw.S2$","S",5,sep=""),data.frame(signal=pickle_data["signal"]$signal$chest$EDA, lab = pickle_data["label"]$label))
+
+
+```
+Now creating a dataframe list with per second data sampled at 350 Hz
+```{r}
+fs = 700.000
+fsorig =700.000
+```
+```{r}
+len1 = (length(data.raw[[1]]$signal)/fs)
+listparam=list(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+#meanlist = list()
+#minlist = list()
+#maxlist = list()
+#medianlist= list()
+#skewlist = list()
+#kurtosis = list()
+#time=list()
+
+
+```
+```{r}
+delta = fs/fsorig;
+for(i in as.integer(c(1:len1))){
+  listparam[[1]]<-rbind(listparam[[1]], (fs/fsorig)*(i-1))
+  listparam[[2]]<-rbind(listparam[[2]], mean(data.raw[[1]]$signal[((i-1)*fs+1):(i*fs)]))
+  listparam[[3]]<-rbind(listparam[[3]], min(data.raw[[1]]$signal[((i-1)*fs+1):(i*fs)]))
+  listparam[[4]]<-rbind(listparam[[4]], max(data.raw[[1]]$signal[((i-1)*fs+1):(i*fs)]))
+  listparam[[5]]<-rbind(listparam[[5]], median(data.raw[[1]]$signal[((i-1)*fs+1):(i*fs)]))
+  listparam[[6]]<-rbind(listparam[[6]], skew(data.raw[[1]]$signal[((i-1)*fs+1):(i*fs)]))
+  listparam[[7]]<-rbind(listparam[[7]], kurtosi(data.raw[[1]]$signal[((i-1)*fs+1):(i*fs)]))
+  listparam[[8]]<-rbind(listparam[[8]], min(data.raw[[1]]$lab[((i-1)*fs+1):(i*fs)]))
+  
+}
+```
+
+```{r}
+listparam<-data.frame(listparam)
+```
+```{r}
+names(listparam)<-c("TIME", "MEAN", "MIN", "MAX", "MEDIAN", "SKEWNESS", "KURTOSIS", "CONDITION")
+
+```
+Verify if the conditions are correct or false
+```{r}
+unique(listparam$CONDITION)
+  
+```
+
+#Now dividinng the last column into factor depending on if the the patient is stresed or not...
+
+classifying the seven categories and then adding an additional category which classified if the person is under stress or not.
+
+```{r}
+listparam<-listparam %>%
+  mutate(TIMEMIN = TIME/60.000)
+```
+
+Start Signal 2 from here
+```{r}
+S2_signal=list()
+S2_signal$signal<-data.raw$S2$signal
+S2_signal<-data.frame(S2_signal)
+S2_signal[["lab"]]<-data.raw$S2$lab
+  
+```
+Adding the count factor
+```{r}
+S2_signal[["counttime"]]<-c(1:length(data.raw$S2$lab))
+
+```
+Adding a time second data
+```{r}
+S2_signal<-S2_signal%>%
+  mutate(timesec = as.numeric(counttime/fsorig))
+```
+Adding a time min data
+```{r}
+S2_signal<-S2_signal%>%
+  mutate(timemin = timesec/60.000)
+```
+Adding a time sec corrected data
+```{r}
+S2_signal<-S2_signal%>%
+  mutate(timeseccor = timesec+(424.8-306.54857142857144935988))
+```
+Adding a time min corrected data
+```{r}
+S2_signal<-S2_signal%>%
+  mutate(timemincor = timeseccor/60.00)
+
+```
+
+
+Adding the time in mins
+```{r}
+S2_signal<-S2_signal%>%
+  mutate(timemin=counttime/(700*60)+1.97)
+```
+
+1.97 = shift factor...
+0=Nothing
+1 = Baseline
+2 = Stress/TSST
+3 = Amusement
+4 = Meditation
+5 = 
+6 = Slow Read
+7 = Fast Read
+
+
+Will Create 15 sets of patients dataframe as a processed dataset. 
+Processing the first signal
+
+plist<-as.integer(c(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17))
+```{r}
+S2<-data.raw[[1]]
+```
+The time factor additions
+```{r}
+S2$timesec<-S2$timesec+(424.8-306.54857142857144935988)
+S2$timemin<-S2$timesec/60
+```
+
+```{r}
+S3<-data.raw[[2]]
+```
+```{r}
+S3$timesec<-S3$timesec+(386.4-352.58857)
+S3$timemin<-S3$timesec/60
+```
+Conditions for S3
+1 = Baseline
+2 = TSST/Stress
+3 = Amusement
+4 = Meditation
+5  = b Read
+6  = Slow Read
+7  = fast Read
+```{r}
+S4<-data.raw[[3]]
+
+```
+Applying time correction
+```{r}
+S4$timesec<-S4$timesec+(45.9057)
+S4$timemin<-S4$timesec/60
+```
+
+```{r}
+S5<-data.raw[[4]]
+```
+```{r}
+S5$timesec<-S5$timesec+(42.8271)
+S5$timemin<-S5$timesec/60
+```
+
+```{r}
+S6<-data.raw[[5]]
+```
+```{r}
+S6$timesec<-S6$timesec+(27.5029)
+S6$timemin<-S6$timesec/60
+```
+
+```{r}
+S7<-data.raw[[6]]
+```
+```{r}
+S7$timesec<-S7$timesec+(27.7671)
+S7$timemin<-S7$timesec/60
+```
+```{r}
+S8<-data.raw[[7]]
+```
+```{r}
+S8$timesec<-S8$timesec+(55.0671)
+S8$timemin<-S8$timesec/60
+```
+
+```{r}
+S9<-data.raw[[8]]
+
+```
+```{r}
+S9$timesec<-S9$timesec+(13.55286)
+S9$timemin<-S9$timesec/60
+```
+```{r}
+S10<-data.raw[[9]]
+
+```
+```{r}
+S10$timesec<-S10$timesec+(57.14143)
+S10$timemin<-S10$timesec/60
+```
+
+```{r}
+S11<-data.raw[[10]]
+```
+
+```{r}
+S11$timesec<-S11$timesec+(48.17429)
+S11$timemin<-S11$timesec/60
+```
+
+```{r}
+S13<-data.raw[[11]]
+```
+```{r}
+S13$timesec<-S13$timesec+(48.89286)
+S13$timemin<-S13$timesec/60
+```
+```{r}
+S14<-data.raw[[12]]
+```
+
+Conditions for S14
+1 = Baseline
+2 = TSST/Stress
+3 = Amusement
+4 = Meditation
+5  = b Read
+6  = Slow Read
+7  = fast Read
+```{r}
+S14$timesec<-S14$timesec+(93.60286)
+S14$timemin<-S14$timesec/60
+```
+```{r}
+head(data.frame(S14[, 10:13])%>%filter(lab==2))
+```
+```{r}
+tail(data.frame(S14[, 10:13])%>%filter(lab==2))
+```
+```{r}
+S15<-data.raw[[13]]
+```
+```{r}
+S15$timesec<-S15$timesec+(144.7686)
+S15$timemin<-S15$timesec/60
+```
+```{r}
+head(data.frame(S15[, 10:13])%>%filter(lab==4))
+```
+```{r}
+tail(data.frame(S15[, 10:13])%>%filter(lab==4))
+```
+
+
+```{r}
+S16<-data.raw[[14]]
+```
+```{r}
+head(data.frame(S16[, 10:13])%>%filter(lab==4))
+```
+```{r}
+tail(data.frame(S16[, 10:13])%>%filter(lab==4))
+```
+
+
+```{r}
+S16$timesec<-S16$timesec+(81.62857)
+S16$timemin<-S16$timesec/60
+```
+
+```{r}
+S17<-data.raw[[15]]
+```
+```{r}
+head(data.frame(S17[, 10:13])%>%filter(lab==2))
+```
+```{r}
+tail(data.frame(S17[, 10:13])%>%filter(lab==2))
+```
+```{r}
+S17$timesec<-S17$timesec+(88.96429)
+S17$timemin<-S17$timesec/60
+```
+##Computing  1 sec time window rolling average using rollapply for each category and each patient
+## Stride  = 700 datapoints, Rolling Window  = 700 datapoints.
+Now I have to make a list of all the data frames and then call on all the data frames with while averaging out for each category...
+
+```{r}
+data.corrected = list(S2, S3, S4, S5, S6, S7, S8, S9, S10, S11, S3, S14, S15, S16, S17)
+
+```
+So basically there are four categories as below and we have to do a time average for values across these four categories: While rejecting other variables., Conditions for Any variables
+1 = Baseline
+2 = TSST/Stress
+3 = Amusement
+4 = Meditation
+
+
+```{r EVAL = False}
+rm(data.raw)
+rm(pickle_data)
+
+```
+```{r}
+rm(data.corrected)
+```
+1 = Baseline
+2 = TSST/Stress
+3 = Amusement
+4 = Meditation
+
+## The following code attempts to filter out each catgory and apply the rolling average, if it fails(subject to the computational load) then there is a backup code available after this
+
+
+##This is the mega loop and requires lot of computational power to run and a lot of R memory to store the data so in whole  the original loop would look like c(1:15), to avoid that I have written the code as for (k in c(1:1), c(2:2), c(3:3).. and so on) i.e. running for each patient manually...
+
+Now evaluating S17
+```{r}
+for(k in c(15:15))
+{
+  rm(gtemp1)
+  rm(gtemp2)
+  rm(gtemp3)
+  rm(gtemp4)
+  gtemp1 = list()
+  gtemp2= list()
+  gtemp3 = list()
+  gtemp4 = list()
+  rm(x)
+
+
+
+
+for(i in c(3:13))
+{
+  x<-eval(as.name(name3[[k]]))%>%filter(lab==1)%>%
+  select(i)
+  
+  gtemp1[[i-2]]<-as.data.frame(rollapply(x, width = 700, FUN = mean, by =700))
+}
+
+
+gtemp1<-data.frame(do.call(cbind, gtemp1))
+rm(x)
+
+for(i in c(3:13))
+{
+  x<-eval(as.name(name3[[k]]))%>%filter(lab==2)%>%
+  select(i)
+  
+  gtemp2[[i-2]]<-as.data.frame(rollapply(x, width = 700, FUN = mean, by =700))
+}
+
+
+gtemp2<-data.frame(do.call(cbind, gtemp2))
+
+
+rm(x)
+
+for(i in c(3:13))
+{
+  x<-eval(as.name(name3[[k]]))%>%filter(lab==3)%>%
+  select(i)
+  
+  gtemp3[[i-2]]<-as.data.frame(rollapply(x, width = 700, FUN = mean, by =700))
+}
+
+gtemp3<-data.frame(do.call(cbind, gtemp3))
+
+rm(x)
+
+for(i in c(3:13))
+{
+  x<-eval(as.name(name3[[k]]))%>%filter(lab==4)%>%
+  select(i)
+  
+  gtemp4[[i-2]]<-as.data.frame(rollapply(x, width = 700, FUN = mean, by =700))
+}
+
+
+
+gtemp4<-data.frame(do.call(cbind, gtemp4))
+
+
+
+
+
+
+assign(paste0(name3[[k]],"_final"), rbind(gtemp1, gtemp2, gtemp3, gtemp4))
+
+}
+
+
+
+```
+```{r}
+#(c(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17))
+```
+
+##Replace S17 with current patient name
+```{r}
+S17_final[["ID"]]<-(plist[k])*ones(nrow(S17_final), 1)
+```
+
+```{r}
+#Writing the csv file
+for(ki in name3)
+{
+write_excel_csv2(eval(as.name(paste0(ki, "_final"))), 
+            
+           file =paste0("C:\\Users\\COLDD03\\Desktop\\Project_Dataset\\WESAD_vp\\Patientwise_pre_processed_csv\\", ki,".csv"))
+
+}
+```
+
+```{r}
+S_combined<-rbind(S2_final,S3_final, S4_final, S5_final, S6_final, S7_final, S8_final, S9_final, S10_final, S11_final, S13_final, S14_final, S15_final, S16_final, S17_final)
+```
+```{r}
+S_list<-list(S2_final,S3_final, S4_final, S5_final, S6_final, S7_final, S8_final, S9_final, S10_final, S11_final, S13_final, S14_final, S15_final, S16_final, S17_final)
+```
+```{r}
+S_name<-c("S2_final","S3_final", "S4_final", "S5_final", "S6_final", "S7_final", "S8_final", "S9_final", "S10_final", "S11_final", "S13_final", "S14_final", "S15_final", "S16_final", "S17_final")
+```
+
+```{r}
+ write_delim(S_combined, "C:\\Users\\COLDD03\\Desktop\\Project_Dataset\\WESAD_vp\\WESAD_combined_dataset.csv", delim = ",")
+```
+```{r}
+Stest<-read.csv2("C:\\Users\\COLDD03\\Desktop\\Project_Dataset\\WESAD_vp\\WESAD_combined_dataset.csv", sep = ",")
+
+```
+```{r}
+for(i in c(1:15))
+{
+   write_delim(S_list[[i]], paste("C:\\Users\\COLDD03\\Desktop\\Project_Dataset\\WESAD_vp\\Patientwise_pre_processed_csv\\", S_name[[i]], ".csv", sep=""), delim = ",")
+}
+
+
+
+```
